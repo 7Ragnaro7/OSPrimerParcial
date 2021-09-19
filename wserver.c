@@ -4,6 +4,7 @@
 #include <time.h>
 #include "msg.h"
 #include <sys/msg.h>
+#include "sqlite3.h"
 
 
 
@@ -20,6 +21,7 @@ int main(int argc, char *argv[]) {
 	pid_t process_worker;
 	pid_t process_manager;
     msgtime horarios;
+	
     while ((c = getopt(argc, argv, "d:p:")) != -1)
 	switch (c) {
 	case 'd':
@@ -43,30 +45,67 @@ int main(int argc, char *argv[]) {
 		printf("msgget error\n");
 		exit(-1);
 	}
-	//Crear un nuevo fork que es el que va a escuchar peticiones si es el padre > 0 si no hace el proceso de escuchar
+	// Crear un nuevo fork que es el que va a escuchar peticiones 
+	// si es el padre > 0 si no hace el proceso de escuchar
 	process_manager = fork_or_die();
 	if(process_manager == 0){
 		FILE* f;
+		int msg_rc;
+		char * errmsg;
 		char uuid[33];
 		struct tm * start_time;
 		struct tm * end_time;
+		sqlite3* db;
+		sqlite3_open("/home/ragnaro7/Documentos/SistemasOperativos/Proyecto/dbProject.db", &db);
+		const char sqlstmt[] = "CREATE TABLE IF NOT EXISTS request("
+							"uuid varchar(35), "
+							"start varchar(35),"
+							"end varchar(35)";
+		int rc = sqlite3_exec(db, ("CREATE TABLE IF NOT EXISTS PROCESSES(UUID varchar(35), START varchar(35), END varchar(35));"), NULL, NULL, &errmsg);
+		if(rc != SQLITE_OK){
+			printf("Error at creating table: %s\n", errmsg);
+			sqlite3_close(db);
+			msg_rc = msgctl(msg_id, IPC_RMID, 0);
+			if (msg_rc == -1) {
+				printf("msgctl(IPC_RMID) failed\n");
+			}
+			printf("mailbox closed\n");
+			exit(-1);
+		}
+		
 		while(1){
-			if(msgrcv(msg_id, (void *)&horarios, sizeof(msgtime), msgtype, 0) == -1){
+			msg_rc = msgrcv(msg_id, (void *)&horarios, sizeof(msgtime), msgtype, 0);
+			if(msg_rc == -1){
 				printf("msgrcv fail\n");
-				
-				if (msgctl(msg_id, IPC_RMID, 0) == -1) {
+				msg_rc = msgctl(msg_id, IPC_RMID, 0); 
+				if (msg_rc == -1) {
 					printf("msgctl(IPC_RMID) failed\n");
 				}
-
+				sqlite3_close(db);
 				printf("mailbox closed\n");
 				exit(-1);
 			}
 			f = popen("uuidgen -r", "r");
 			fgets(uuid, sizeof(uuid), f);
 			pclose(f);
+			
 			printf("%s\n", uuid);
 			start_time = localtime(&horarios.start_time);
 			end_time = localtime(&horarios.end_time);
+			//Quitar /n
+			char* str_start_time = asctime(start_time);
+			str_start_time[strlen(str_start_time) - 1] = 0;
+
+			char* str_end_time = asctime(end_time);
+			str_end_time[strlen(str_end_time) - 1] = 0;
+			
+			char sqlinsert[150];
+			snprintf(sqlinsert, 150, "INSERT INTO PROCESSES VALUES('%s', '%s', '%s');", uuid, str_start_time, str_end_time);
+			printf("%s", sqlinsert);
+			rc = sqlite3_exec(db, sqlinsert, NULL, NULL, &errmsg);
+			if(rc != SQLITE_OK){
+				printf("Error: %s\n", errmsg);
+			}
 			printf ("Inicio: %s", asctime(start_time));
 			printf ("Final: %s", asctime(end_time));
 		}
@@ -86,7 +125,8 @@ int main(int argc, char *argv[]) {
 				close_or_die(conn_fd);
 				//time_t end_rawtime;
 				time(&horarios.end_time);
-				if(msgsnd(msg_id, (void *)&horarios, sizeof(msgtime), 0) == -1) {
+				int msg_rc = msgsnd(msg_id, (void *)&horarios, sizeof(msgtime), 0);
+				if(msg_rc == -1) {
 					printf("msgsnd fail\n");
 					exit(-1);
 				}
