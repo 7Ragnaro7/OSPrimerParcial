@@ -27,5 +27,5 @@ Recomandos usar como directorio ./website y puerto 8080.
 
 El script de python testRequest.py permite enviar n peticiones al servidor web una vez este funcionando. Se ejecuta con los siguientes argumentos:
 
-- python3 testRequest.py [cantidad de procesos] [puerto]
+- python3 testRequest.py CANTIDAD_DE_PROCESOS PUERTO
 
